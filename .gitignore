@@ -1,0 +1,27 @@
+# VEnv
+venv/
+.venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# IDEs
+.vscode/
+.idea/
+Thumbs.db
+Desktop.ini
+
+# ==========================================
+#                  GitTrail 
+# ==========================================
+
+output/*
+!output/.gitkeep
+
+configs/*
+!configs/.gitkeep
+!configs/*.example.json

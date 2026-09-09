@@ -1,0 +1,33 @@
+{
+  "color_palettes": {
+    "line_coloring": {
+      "metro_classic": {  
+        "type" : "branch_indexed",
+        "colors": [
+          "#2988bf",
+          "#D55E00",
+          "#009E73",
+          "#CC79A7",
+          "#F0E442",
+          "#56B4E9",
+          "#E69F00"
+        ]
+      }
+    },
+
+    "node_coloring": {
+      "conventional_commits": {
+        "type" : "commit_typed",
+        "colors": {
+          "feat": "#2ECC71",
+          "fix": "#E74C3C",
+          "chore": "#95A5A6",
+          "docs": "#3498DB",
+          "refactor": "#9B59B6",
+          "test": "#F1C40F",
+          "unknown": "#E67E22"
+        }
+      }
+    }
+  }
+}

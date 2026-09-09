@@ -1,0 +1,26 @@
+{
+  "default" : {
+    "orientation": "horizontal",
+    "margins" : {
+      "side_margin": 50.0,
+      "lane_margin": 50.0,
+      "minimum_commit_margin": 50.0
+    },
+    "nodes" : {
+      "toggled" : true,
+      "display_type": "double_circle",
+      "radius": 10.0
+    },
+    "connections": {
+      "lane_change" : {
+        "type": "linear",
+        "margin": 5.0
+      },
+      "branch": {
+        "thickness": 5.0,
+        "decrement_per_branch": 1.0,
+        "max_decrement": 2.0
+      }
+    }
+  }
+}

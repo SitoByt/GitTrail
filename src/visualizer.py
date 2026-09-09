@@ -1,0 +1,3 @@
+"""
+Renders the layout visually
+"""

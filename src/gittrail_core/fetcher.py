@@ -35,7 +35,7 @@ def get_local_git_history(path: str):
     sep = "%x00"
     cmd = [
         "git", "-C", path, "log", "--all", "--topo-order",
-        f"--pretty=format:%H{sep}%P{sep}%an{sep}%at{sep}%s{sep}%D"
+        f"--pretty=format:%H{sep}%P{sep}%an{sep}%at{sep}%s{sep}%D%x1E"
     ]
 
     result = subprocess.run(
@@ -47,16 +47,17 @@ def get_local_git_history(path: str):
     )
 
     commits = []
-    for line in result.stdout.splitlines():
+    for line in result.stdout.split("\x1E"):
         if not line.strip():
             continue
-        parts = line.split(sep)
+        parts = line.split("\x00")
         commits.append({
-            "hash": parts[0],
+            "hash": parts[0].strip(),
             "parents": parts[1].split() if parts[1] else [],
             "author": parts[2],
             "timestamp": int(parts[3]),
-            "message": parts[4] if len(parts) > 4 else ""
+            "message": parts[4] if len(parts) > 4 else "",
+            "refs": [r.strip() for r in parts[5].split(",")] if len(parts) > 5 and parts[5] else []
         })
 
     return commits
@@ -69,6 +70,7 @@ def fetch_remote_git_history(url: str):
             subprocess.run(clone_cmd, capture_output=True, text=True, check=True)
         except subprocess.CalledProcessError as e:
             raise RuntimeError(f"Error while cloning repository: {e.stderr.strip()}")
+            # TODO: Errorhandling
         return get_local_git_history(temp_dir)
 
 

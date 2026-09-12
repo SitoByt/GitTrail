@@ -1,6 +1,6 @@
 import json
 import os
-from model import Track
+from gittrail_core.track.model import Track
 from enum import Enum
 from typing import Dict, List, Optional, Union
 from pydantic import BaseModel, Field
@@ -44,9 +44,10 @@ Layout Config
 
 class NodeDisplayType(str, Enum):
     CRICLE = "circle"
-    DOUBLE_CIRCLE = "double_circle" #
+    DOUBLE_CIRCLE = "double_circle" 
 
-class LaneChangeType(str, Enum): # describes how to connect Nodes between lanes
+# describes how to connect Nodes between lanes
+class LaneChangeType(str, Enum):
     LINEAR = "linear"   # straight line
     CURVED = "curved"   # curvein the shape of x^{distance}
 
@@ -62,22 +63,31 @@ class MarginsConfig(BaseModel):
     lane_margin: float = 50.0
     commit_margin: float = 20.0
 
-
 class NodesLayoutConfig(BaseModel):
     toggled : bool = True
     display_type : NodeDisplayType = NodeDisplayType.DOUBLE_CIRCLE
     node_radius: float = 10.0
 
+class LaneChangeConfig(BaseModel):
+    type: LaneChangeType = LaneChangeType.LINEAR
+    margin: float = 10.0
+
 class BranchLayoutConfig(BaseModel):
-    stroke_width: float = 3.0
-    lane_change_type: LaneChangeType = LaneChangeType.LINEAR
+    stroke_width: float = 5.0
+    decrement_per_branch:  float = 1.0
+    max_decrement: float = 2.0
     continuation_type: ContinuationType = ContinuationType.FADE 
+
+class ConnectionConfig(BaseModel):
+    lane_change: LaneChangeConfig
+    branch: BranchLayoutConfig
+    
 
 class LayoutConfig(BaseModel):
     orientation: str = "horizontal"     # horizontal || vertical
-    margin_config: MarginsConfig
-    node_config: NodesLayoutConfig
-    branch_config: BranchLayoutConfig
+    margins: MarginsConfig
+    nodes: NodesLayoutConfig
+    connections: BranchLayoutConfig
 
 """
 Git Config 
@@ -85,7 +95,8 @@ Git Config
 
 class GitConfig(BaseModel):
     project_name: str
-    url: str
+    project_url: str
+    project_description: str
 
 
 """
@@ -94,6 +105,6 @@ Track Config
 
 class TrackConfig(BaseModel):
     git_info: GitConfig
-    track: Track
     style_config: StyleConfig
     layout_config: LayoutConfig
+    track: Track

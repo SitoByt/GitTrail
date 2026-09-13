@@ -7,6 +7,8 @@ import tempfile
 import subprocess
 import json
 
+from gittrail_core.config.config_model import GitConfig
+
 """
 Fetches the Git History from a local Directory or from GitLab/GitHub
 """
@@ -71,7 +73,47 @@ def fetch_remote_git_history(url: str):
         except subprocess.CalledProcessError as e:
             raise RuntimeError(f"Error while cloning repository: {e.stderr.strip()}")
             # TODO: Errorhandling
-        return get_local_git_history(temp_dir)
+        return temp_dir
+
+# creates a git config for the git repository
+def create_git_info(path: str, url: str = "") -> GitConfig:
+    project_name = os.path.basename(os.path.abspath(path))
+
+    if not url:
+        try:
+            result = subprocess.run(
+                ["git", "-C", path, "remote", "get-url", "origin"],
+                capture_output=True,
+                text=True,
+                check=True,
+                encoding="utf-8"
+            )
+            url = result.stdout.strip()
+        except subprocess.SubprocessError:
+            url = ""
+
+    description = ""
+    desc_path = os.path.join(path, ".git", "description")
+    if os.path.exists(desc_path):
+        try:
+            with open(desc_path, "r", encoding="utf-8") as f:
+                content = f.read().strip()
+                if content and not content.startswith("Unnamed repository"):
+                    description = content
+        except Exception:
+            pass
+            
+    if not description:
+        description = f"Git repository for {project_name}"
+
+    return GitConfig(
+        project_name=project_name,
+        project_url=url,
+        project_description=description
+    )
+
+    
+        
 
 
 if __name__ == "__main__":

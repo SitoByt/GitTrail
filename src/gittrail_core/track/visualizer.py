@@ -10,7 +10,9 @@ Renders the layout visually
 from gittrail_core.track.model import Track
 
 
-def display_via_cmdln(track: Track):
+
+
+def display_via_txt(track: Track):
     if not track.lanes or not track.node_hashes:
         return
 

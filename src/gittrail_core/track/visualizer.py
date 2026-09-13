@@ -107,7 +107,7 @@ def display_via_cmdln(track: Track):
             f.write(f"{label:2d} | {row_str}\n")
 
 """
-Example:
+Example/Idea on how this could look:
 3 |        /----\     /--\
 2 |    /---------------------\
 1 |    /     /-------\       \

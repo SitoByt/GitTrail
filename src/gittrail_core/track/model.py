@@ -60,6 +60,7 @@ class Branch(BaseModel):
     name: str
     color: str = "#000000"
     commits: list[str] = Field(default_factory=list)
+    ongoing: bool = False
 
     def add_commit(self, commit: CommitNode):
         self.commits.append(commit.hash)

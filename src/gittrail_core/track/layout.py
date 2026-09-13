@@ -1,6 +1,6 @@
 from __future__ import annotations
 import sys
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional, Set, Tuple
 from pydantic import BaseModel, Field
 from gittrail_core.track.model import Branch, CommitNode, Connection, ConnectionType, Track
 
@@ -8,7 +8,7 @@ from gittrail_core.track.model import Branch, CommitNode, Connection, Connection
 This module calculates the layout of the git-history on our track
 """
 
-# determines the branches
+# determines the branches and whether they are still active
 def get_branches(commits: List[Dict]) -> List[Branch]:
     commits_by_hash = {c["hash"]: c for c in commits}
     assigned_hashes: Set[str] = set()
@@ -34,13 +34,20 @@ def get_branches(commits: List[Dict]) -> List[Branch]:
                         if not ref.startswith("tag:") and not ref.startswith("origin/HEAD"):
                             b_name = ref.split("/", 1)[-1] if ref.startswith("origin/") else ref
                             break
+                        if ref.startswith("origin/"):
+                            b_name = ref.split("/", 1)[-1]
+                            is_ongoing = True
+                            break
+                        elif not b_name:
+                            b_name = ref
             
             parents = commits_by_hash[curr]["parents"]
             curr = parents[0] if parents else None
-
+        
+        is_ongoing = bool(b_name)
         branch_name = b_name if b_name else f"branch-{len(branches)}"
         current_branch_hashes.reverse() # last to first => first to last
-        branches.append(Branch(name=branch_name, commits=current_branch_hashes))
+        branches.append(Branch(name=branch_name, commits=current_branch_hashes, ongoing=is_ongoing))
     return branches
 
 # Creates the track-object
@@ -56,31 +63,26 @@ def construct_track(commits: List[Dict]) -> Track:
             hash_to_branch_id[hash] = str(id(branch))
 
     commits.reverse() # sorted from oldest to newest
-
-    # get a list of commit-objects
-    nodes_by_hash: Dict[str, CommitNode] = {}
+    nodes_by_hash: Dict[str, CommitNode] = {}   
     hashes: List[str] = []
 
     for commit in commits:
         hash = commit["hash"]
-        branch = hash_to_branch_id.get(hash)
-
-        node = CommitNode(
+        nodes_by_hash[hash] = CommitNode(
             hash=hash,
             author=commit["author"],
             timestamp=commit["timestamp"],
             message=commit["message"],
             parents=commit["parents"],
-            branch=branch
+            branch=hash_to_branch_id.get(hash)
         )
-        nodes_by_hash[hash] = node
         hashes.append(hash)
 
     for hash in hashes:
         nodes_by_hash[hash].create_connections(nodes_by_hash)
 
     # Create the Graph/Track
-    lanes = build_lanes_clustered(nodes_by_hash, branches)
+    lanes = construct_lanes(nodes_by_hash, branches)
 
     return Track(lanes=lanes,
                  node_hashes=hashes, 
@@ -91,27 +93,20 @@ def construct_track(commits: List[Dict]) -> Track:
 Lane-Building Algorithm
 """
 
-class Interval(BaseModel):
-    branch_id: str
-    parent_id: Optional[str] = None
-    min: int
-    max: int
+# Data-Class to calculate with the comparative branch-length
+class Interval:
+    def __init__(self, branch_id: str, min: int, max: int, parent_id: Optional[str] = None):
+        self.branch_id = branch_id
+        self.parent_id = parent_id
+        self.min = min
+        self.max = max
 
     def contains(self, other: Interval) -> bool:
         return self.min <= other.min and other.max <= self.max
 
     def overlaps(self, other: Interval) -> bool:
         return max(self.min, other.min) <= min(self.max, other.max)
-
-    def count_crossings(self, intervals: List[Interval]):
-        conflicts = 0
-        for other in intervals:
-            if self.overlaps(other):
-                if not (self.contains(other) or other.contains(self)):
-                    conflicts += 1
-        return conflicts
     
-
 # transform Branches into intervals
 def calculate_branch_intervals(hash_to_node: Dict[str, CommitNode], branches: list[Branch]) -> list[Interval]:
     nodes_list = list(hash_to_node.values())
@@ -130,116 +125,220 @@ def calculate_branch_intervals(hash_to_node: Dict[str, CommitNode], branches: li
             parent_node = hash_to_node.get(first_node.parents[0])
             if parent_node and parent_node.branch:
                 parent_id = str(parent_node.branch)
-            if parent_id == branch:
+            if parent_id == branch_id:
                 parent_id = None
 
         # Add the Intervals
-        intervals.append(
-            Interval(
+        intervals.append(Interval(
                 branch_id=branch_id,
                 parent_id=parent_id,
                 min=min(steps),
                 max=max(steps)
-            )
-        )
+            ))
+        
+    if intervals:
+        main_id = intervals[0].branch_id
+        for inv in intervals[1:]:
+            if inv.parent_id is None:
+                inv.parent_id = main_id
+        intervals.sort(key=lambda x: x.min)
     return intervals
 
-# TODO: Replace this function(!)
-def build_lanes_clustered(hash_to_node: Dict[str, CommitNode], branches: List[Branch]) -> List[List[Branch]]:
-    intervals = calculate_branch_intervals(hash_to_node, branches)
+"""
+The cluster class is used to calculate the layout of each lane inside of the branch efficiently.
+"""
+class Cluster:
+    def __init__(self, interval:Interval, intervals: List[Interval]):
+        self.interval = interval
+        self.child_clusters = [Cluster(inv, intervals) for inv in intervals if inv.parent_id == self.interval.branch_id] 
+        self._min = self.interval.min
+        self._max = -1
+        self._width = -1
+        self._cluster_lanes: List[List[Cluster]] = []
+        self._physical_lanes: List[List[Cluster]] = []
+
+    # transform the Cluster into lanes with branch-ids
+    def get_lanes(self) -> List[List[str]]:
+        cluster_lanes = self._get_physical_lanes()
+        id_lanes = []
+        for lane in cluster_lanes:
+            current_lane = []
+            for cluster in lane:
+                current_lane.append(cluster.interval.branch_id)
+            id_lanes.append(current_lane)
+        return id_lanes
+
+    # calculates cluster-layout
+    def _get_clusterd_lanes(self) -> List[List[Cluster]]:
+        if self._cluster_lanes:
+            return self._cluster_lanes
+        
+        # defines whether we could theoretically place a branch on a lane
+        def is_lane_free(lane: List[Cluster], cluster: Cluster) -> bool:
+            if not lane: return True
+            return lane[-1].get_max() < cluster.get_min()
+        # responsible for inserting a cluster into the lanes (relative to the parent)
+        def cascade_insert(idx: int, cluster: Cluster, push_dir: int):
+            nonlocal parent_idx
+
+            if idx < 0:
+                lanes.insert(0, [cluster])
+                parent_idx += 1
+                return
+            if idx >= len(lanes):
+                lanes.append([cluster])
+                return
+                
+            overlapping = [c for c in lanes[idx] if c.overlaps(cluster)]
+            lanes[idx] = [c for c in lanes[idx] if not c.overlaps(cluster)]
+            lanes[idx].append(cluster)
+            lanes[idx].sort(key=lambda x: x.get_min())
+            
+            for ev in overlapping:
+                cascade_insert(idx + push_dir, ev, push_dir)
+
+        lanes = [[self]]  
+        parent_idx = 0 
+        # We chronologically iterate over each Cluster, and add it to our lanes 
+        for child in self.child_clusters:
+            candidates = []
+            # We test whether we can append it to any free lane
+            for idx, lane in enumerate(lanes):
+                if idx == parent_idx: continue
+                if is_lane_free(lane, child):
+                    crossings = 0
+                    check_range = range(idx + 1, parent_idx) if idx <= parent_idx else range(parent_idx + 1, idx)
+                    for i in check_range:
+                        if any(child.overlaps(c) for c in lanes[i]):
+                            crossings += 1
+                    dst = abs(idx - parent_idx)
+                    min_crossings = min(crossings, min_crossings)
+                    is_above = idx > parent_idx
+                    candidates.append((crossings, is_above, False, dst,  idx))
+
+            min_crossings = min([c[0] for c in candidates]) if candidates else 99999
+
+            # If an insert could reduce crossings, we search for any option
+            if min_crossings > 0:
+                for idx in range(len(lanes) + 1):
+                    crossings = 0
+                    check_range = range(idx, parent_idx) if idx <= parent_idx else range(parent_idx + 1, min(idx + 1, len(lanes)))
+                    for i in check_range:
+                        if any(child.overlaps(c) for c in lanes[i]):
+                            crossings += 1
+
+                    if crossings <= min_crossings:
+                        dist = (parent_idx + 1 - idx) if idx <= parent_idx else (idx - parent_idx)
+                        min_crossings = crossings
+                        is_above = idx > parent_idx
+                        candidates.append((crossings, is_above, True, dist, idx))
+                    
+            if candidates:
+                # Priority: 1. least crossings, 2. is_above, 3. no-insert, 4. distance.
+                candidates = [c for c in candidates if c[0] == min_crossings]
+                candidates.sort(key=lambda c: (c[2], not c[1], c[3]))
+
+                result = candidates[0]
+                is_insert = result[2]
+                target_idx = result[4]
+                # Adding the cluster to the lanes
+                if is_insert:
+                    lanes.insert(target_idx, [child])
+                    if target_idx <= parent_idx:
+                        parent_idx += 1
+                else:
+                    push_dir = -1 if target_idx < parent_idx else 1
+                    cascade_insert(target_idx, child, push_dir)
+            
+        self._cluster_lanes = lanes
+        return lanes
+
+    # calculates line-positioning
+    def _get_physical_lanes(self) -> List[List[Cluster]]:
+        if self._physical_lanes:
+            return self._physical_lanes
+        
+        # Merging together all the sub-lanes by translating a lane of clusters to a list of lanes as wide as the widest sub-cluster
+        logical_lanes = self._get_clusterd_lanes()
+        physical_lanes: List[List[Cluster]] = []
+
+        parent_idx = 0
+        for i, lane in enumerate(logical_lanes):
+            if self in lane:
+                parent_idx = i
+                break
+
+        for idx, lane in enumerate(logical_lanes):
+            if self in lane:
+                physical_lanes.append([self])
+            else:
+                lane_width = 0
+                for cluster in lane:
+                    lane_width = max(lane_width, cluster.get_width())
+                sub_lanes: List[List[Cluster]] = [[] for _ in range(lane_width)]
+                for cluster in lane:
+                    cluster_phys = cluster._get_physical_lanes()
+                    if idx < parent_idx:
+                        # Mirroring the layout if the sub-cluster is below the cluster
+                        cluster_phys = list(reversed(cluster_phys))
+                        offset = lane_width - len(cluster_phys)
+                    else:
+                        offset = 0
+                    for i in range(lane_width):
+                        if i < len(cluster_phys):
+                            sub_lanes[offset + i].extend(cluster_phys[i])
+                physical_lanes.extend(sub_lanes)
+                
+        self._physical_lanes = physical_lanes
+        return physical_lanes
+
+    # getters
+
+    def get_width(self) -> int:
+        if self._width == -1:
+            self._width = len(self._get_physical_lanes())
+        return self._width
+
+    def get_min(self) -> int:
+        return self._min
+
+    def get_max(self) -> int:
+        if(self._max == -1):
+            if self.child_clusters:
+                self._max = max(max(c.get_max() for c in self.child_clusters), self.interval.max)
+            else:
+                self._max = self.interval.max
+        return self._max
+
+    def get_min_max(self) -> tuple[int, int]:
+        return (self.get_min(), self.get_max())
+
+    # helper functions
+
+    def contains(self, other: Cluster) -> bool:
+        s_min, s_max = self.get_min_max()
+        o_min, o_max = other.get_min_max()
+        return s_min <= o_min and o_max <= s_max
+    
+    def overlaps(self, other: Cluster) -> bool:
+        s_min, s_max = self.get_min_max()
+        o_min, o_max = other.get_min_max()
+        return max(s_min, o_min) <= min(s_max, o_max)
+
+def construct_lanes(hash_to_node: Dict[str, CommitNode], branches: List[Branch]) -> List[List[Branch]]:
+    intervals = calculate_branch_intervals(hash_to_node=hash_to_node, branches=branches)
     if not intervals:
         return []
 
-    id_to_branch = {str(id(b)): b for b in branches}
-    
-    root = intervals[0]
-    lanes: List[List[str]] = [[root.branch_id]]
-    
-    branch_to_interval = {interval.branch_id: interval for interval in intervals}
-    remaining = [i for i in intervals if i != root]
-    remaining.sort(key=lambda x: x.min)
+    id_to_branch = {str(id(branch)) : branch for branch in branches}
 
-    for interval in remaining:
-        parent_idx = 0
-        if interval.parent_id:
-            for idx, lane in enumerate(lanes):
-                if interval.parent_id in lane:
-                    parent_idx = idx
-                    break
+    root_cluster = Cluster(interval=intervals[0], intervals=intervals)
+    id_lanes = root_cluster.get_lanes()
 
-        options = []
-        lanes_before = parent_idx
-        lanes_after = len(lanes) - 1 - parent_idx
+    return[[id_to_branch[branch_id] for branch_id in lane] for lane in id_lanes]
 
-        # 1. Prüfe bestehende Linien (Anhängen)
-        for idx, lane in enumerate(lanes):
-            fits = True
-            for b_id in lane:
-                if interval.overlaps(branch_to_interval[b_id]):
-                    fits = False
-                    break
-            if fits:
-                crossed = range(parent_idx + 1, idx) if parent_idx < idx else range(idx + 1, parent_idx)
-                intersections = sum(interval.count_crossings([branch_to_interval[b_id] for b_id in lanes[i]]) for i in crossed)
-                dist = abs(parent_idx - idx)
-                # Option-Format: (Intersections, Is_Insert_Penalty, Distance, Balance_Penalty, Target_Idx)
-                balance_penalty = 1 if (idx < parent_idx and lanes_before > lanes_after) or (idx > parent_idx and lanes_after > lanes_before) else 0
-                options.append((intersections, 0, dist, balance_penalty, False, idx))
-
-        # 2. Prüfe neue Linien (Einfügen)
-        for idx in range(len(lanes) + 1):
-            crossed = range(parent_idx + 1, idx) if parent_idx < idx else range(idx, parent_idx)
-            intersections = sum(interval.count_crossings([branch_to_interval[b_id] for b_id in lanes[i]]) for i in crossed)
-            
-            dist_after = (parent_idx + 1) - idx if idx <= parent_idx else idx - parent_idx
-            balance_penalty = 1 if (idx <= parent_idx and lanes_before > lanes_after) or (idx > parent_idx and lanes_after > lanes_before) else 0
-            options.append((intersections, 1, dist_after, balance_penalty, True, idx))
-
-        # Sortiere nach: 1. Schnittpunkte, 2. Bestehende recyclen, 3. Nähe zum Parent, 4. Balance
-        options.sort(key=lambda x: (x[0], x[1], x[2], x[3]))
-        best_opt = options[0]
-
-        is_insert = best_opt[4]
-        target_idx = best_opt[5]
-
-        if is_insert:
-            lanes.insert(target_idx, [interval.branch_id])
-        else:
-            lanes[target_idx].append(interval.branch_id)
-
-    resulting_lanes = []
-    for lane in lanes:
-        resulting_lanes.append([id_to_branch[branch_id] for branch_id in lane])
-    return resulting_lanes
-
-class Cluster(BaseModel):
-    interval: Interval
-    child_clusters: List[Cluster] = Field(default_factory=list)
-
-# TODO: REPLACE STANDARD ALGORITHM
-"""
-1. Neue Klasse -> Cluster (enthält den ur-branch, und alle seine sub-Cluster) => Ermittlung der Breite
-2. Wir checken an der grenze jedes gleichwertigen clusters (gleicher parent) die geringste Schnitt-Anzahl
-3.1. Wir erstellen neue Linien für die Branches (wenn es bereits ausreichend Linien gibt können wir diese nehmen)
-    a) Linien außerhalb den Schwester-Clustern (der äußerer Branch ist länger als der innere) => Einfach greedy neu erstellen
-    b) Linien in den Schwester-Clustern  (der äußere Branch ist kürzer als der innere) => greedy linien erstellen
-3.2. Linien existieren bereits (Greedy würde formatierung zerstören!)
-        -> zu wenig linien? 
-            ganz oben: einfach neu erstellen, 
-            sonst: gleichmaßig nach oben und unten für schöne formatierung (priorität: nähe zum parent-branch(!))
-    => Wir berechnen die beste darstellung im vorhinaus, und fügen sie dann in den linien entsprechend ein
-Wenn wir können wollen wir wenn wir die freie Wahl haben einen Branch (solange kein zukünftiger Schwester-branch früher aufhören würde) weiter innen sein.
-    
-4. Wir übersetzen die Darstellung zu Branches und erstellen daraus den Track
-
-    
-    
-Punkt 1 ermöglicht einfaches Traversieren der Branches/der Intervalle
-Punkt 2 wird implementiert, indem wir alle Lines basierend auf ihren Intervallen berechnen
-Punkt 3 kann als eine Funktion genutzt werden => wenn die linien noch nicht existieren fügen wir einfach die neuen Listen hinzu, ansonsten hängen wir sie an den entsprechenden Indexen an
-"""
 
 # TODO: Funktion um Linien/Gleise zu minimieren (ohne Cluster zu zerstören(!)) 
 # => Wenn zwei Linien von mehreren branches zu den gleichen zeitpunkten nicht genutzt wird, können wir sie vereinigen
 
-# Sind andere Optimierungen/Automatisierungen möglich?
+# TODO: Maybe a Function to update a Track (continue from an existing history)

@@ -16,10 +16,9 @@ def main():
 
     track = construct_track(git_history)
     lanes = track.lanes
-    lane_count = len(lanes)
 
     print(f"\nfinished layout:")
-    print(f" - lane count: {lane_count}")
+    print(f" - lane count: {len(lanes)}")
     for i, lane in enumerate(lanes):
         node_count = sum(len(b.commits) for b in lane)
         print(f"  * lane {i}: {len(lanes[i])} branches, {node_count} nodes")

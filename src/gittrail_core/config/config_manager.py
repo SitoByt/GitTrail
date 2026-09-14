@@ -1,4 +1,5 @@
-from gittrail_core.config.config_model import TrackConfig, get_default_layout_config, get_default_style_config
+from gittrail_core.config.config_model import GitConfig, TrackConfig, get_default_layout_config, get_default_style_config
+from gittrail_core.track.model import Track
 
 def create_track_config(git_info, track, loaded_style_config, loaded_layout_config) -> TrackConfig:
     track_config = TrackConfig(

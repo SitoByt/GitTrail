@@ -29,7 +29,6 @@ def select_repo_directory() -> str | None:
             return folder_path
         else:
             print("Error: the selected Folder isn't a Git-Repository")
-            return None
     return None
 
 # local history
@@ -66,14 +65,13 @@ def get_local_git_history(path: str):
 
 # fetches (only the Git-History) via an Web-URL
 def fetch_remote_git_history(url: str):
-    with tempfile.TemporaryDirectory() as temp_dir:
-        clone_cmd = ["git", "clone", "--bare", "--filter=blob:none", url, temp_dir]
-        try:
-            subprocess.run(clone_cmd, capture_output=True, text=True, check=True)
-        except subprocess.CalledProcessError as e:
-            raise RuntimeError(f"Error while cloning repository: {e.stderr.strip()}")
-            # TODO: Errorhandling
-        return temp_dir
+    temp_dir = tempfile.mkdtemp()
+    clone_cmd = ["git", "clone", "--bare", "--filter=blob:none", url, temp_dir]
+    try:
+        subprocess.run(clone_cmd, capture_output=True, text=True, check=True)
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(f"Error while cloning repository: {e.stderr.strip()}")
+    return temp_dir
 
 # creates a git config for the git repository
 def create_git_info(path: str, url: str = "") -> GitConfig:
@@ -112,16 +110,3 @@ def create_git_info(path: str, url: str = "") -> GitConfig:
         project_description=description
     )
 
-    
-        
-
-
-if __name__ == "__main__":
-    path = select_repo_directory()
-    if path:
-        print(f"Selected Repository: {path}")
-        history = get_local_git_history(path)
-        print(json.dumps(history, indent=2, ensure_ascii=False))
-        print(f"\nResulting Json: {len(history)} Commits.")
-    else:
-        print("Failed reading the repository")

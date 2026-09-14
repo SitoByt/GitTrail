@@ -1,16 +1,19 @@
 import json
+import os
+import tkinter
+from tkinter import filedialog
 from gittrail_core.config.config_manager import create_track_config, generate_default_track_config, write_track_config
 from gittrail_core.config.config_model import GitConfig, TrackConfig
-from gittrail_core.fetcher import create_git_info, fetch_remote_git_history, get_local_git_history, select_repo_directory
+from gittrail_core.track.fetcher import create_git_info, fetch_remote_git_history, get_local_git_history, select_repo_directory
 from gittrail_core.track.layout import construct_track
 from gittrail_core.track.model import Track
-from gittrail_core.track.visualizer import display_via_cmdln, display_via_txt
+from gittrail_core.track.visualizer import display_via_txt
 
 """
 This File serves as a mediator between the interface and program
 """
 # TODO: Save the current JSON/Track/... somewhere => this file?
-git_info: GitConfig = GitConfig()
+git_info: GitConfig 
 track: Track
 
 """
@@ -18,9 +21,8 @@ track: Track
 """
 
 #TODO: "Create" Function -> creates a new Graph based on the configs and git-histories
-def init_local(path: str = "") -> str:
-    if not path:
-        repo_path = select_repo_directory()
+def init_local(repo_path: str = "") -> str:
+    repo_path = repo_path if repo_path else select_repo_directory()
 
     if not repo_path:
         print("didn't select a repository")
@@ -30,7 +32,11 @@ def init_local(path: str = "") -> str:
     git_info = create_git_info(repo_path)
     return repo_path
 
-def init_remote(url: str) -> str:
+def init_remote(url: str = "") -> str:
+    if not url:
+        print("didn't input an url")
+        return ""
+
     temp_dir = fetch_remote_git_history(url)
     global git_info
     git_info = create_git_info(temp_dir, url)
@@ -51,9 +57,8 @@ def create_track(repo_path: str):
 
 def update_track(repo_path: str, json_path: str = ""):
     if not json_path:
-        pass
-        # json_path = _select_json_file()
-
+        _select_json_path()
+    
     track_config: TrackConfig = read_json(json_path)
     global track
     track = track_config.track
@@ -70,7 +75,26 @@ def update_track(repo_path: str, json_path: str = ""):
         )
 
 def _select_json_path() -> str:
-    pass # TODO
+    root = tkinter.Tk()
+    root.withdraw()
+    root.attributes("-topmost", True)
+
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    output_dir: str = os.path.abspath(os.path.join(base_dir, "..", "..", "output"))
+    os.makedirs(output_dir, exist_ok=True)
+    file_path = filedialog.askopenfilename(
+        title="Select Track Config JSON",
+        initialdir=output_dir,
+        filetypes=[("All Files", "*.*"), ("JSON Files", "*.json")]
+    )
+    root.destroy()
+
+    if file_path:
+        if os.path.exists(file_path):
+            return file_path
+        else:
+            print("Error: No valid JSON file selected")
+    return ""
 
 """
  Input
@@ -107,5 +131,9 @@ def display_track_creation_cmdln():
     else:
         print("\nNo nodes found in track.")
 
-def display_track_in_txt(track: Track):
-    display_via_txt(track)
+def display_track_in_txt():
+    global track
+    if track:
+        display_via_txt(track)
+    else:
+        print("No track loaded")

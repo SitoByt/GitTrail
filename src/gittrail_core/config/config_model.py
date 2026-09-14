@@ -87,7 +87,7 @@ class LayoutConfig(BaseModel):
     orientation: str = "horizontal"     # horizontal || vertical
     margins: MarginsConfig
     nodes: NodesLayoutConfig
-    connections: BranchLayoutConfig
+    connections: ConnectionConfig
 
 """
 Git Config 
@@ -143,11 +143,20 @@ def get_default_layout_config() -> LayoutConfig:
         margins=MarginsConfig(
             side_margin=30.0, 
             lane_margin=50.0, 
-            commit_margin=20.0),
+            commit_margin=20.0
+            ),
         nodes=NodesLayoutConfig(
             toggled=True, 
-            node_radius=10.0),
-        connections=BranchLayoutConfig(
-            stroke_width=5.0)
+            node_radius=10.0
+            ),
+        connections=ConnectionConfig(
+            lane_change=LaneChangeConfig(
+                type=LaneChangeType.LINEAR,
+                margin=10.0
+            ),
+            branch=BranchLayoutConfig(
+                stroke_width=5.0
+            )
+        )
     )
 

@@ -218,20 +218,19 @@ class Cluster:
 
             min_crossings = min([c[0] for c in candidates]) if candidates else 99999
 
-            # If an insert could reduce crossings, we search for any option
-            if min_crossings > 0:
-                for idx in range(len(lanes) + 1):
-                    crossings = 0
-                    check_range = range(idx, parent_idx) if idx <= parent_idx else range(parent_idx + 1, min(idx + 1, len(lanes)))
-                    for i in check_range:
-                        if any(child.overlaps(c) for c in lanes[i]):
-                            crossings += 1
+            # We search for insert-options:
+            for idx in range(len(lanes) + 1):
+                crossings = 0
+                check_range = range(idx, parent_idx) if idx <= parent_idx else range(parent_idx + 1, idx)
+                for i in check_range:
+                    if any(child.overlaps(c) for c in lanes[i]):
+                        crossings += 1
 
-                    if crossings <= min_crossings:
-                        dist = (parent_idx + 1 - idx) if idx <= parent_idx else (idx - parent_idx)
-                        min_crossings = crossings
-                        is_above = idx > parent_idx
-                        candidates.append((crossings, is_above, True, dist, idx))
+                if crossings <= min_crossings:
+                    dist = (parent_idx + 1 - idx) if idx <= parent_idx else (idx - parent_idx)
+                    min_crossings = crossings
+                    is_above = idx > parent_idx
+                    candidates.append((crossings, is_above, True, dist, idx))
                     
             if candidates:
                 # Priority: 1. least crossings, 2. is_above, 3. no-insert, 4. distance.

@@ -1,3 +1,0 @@
-"""
-Renders the layout visually
-"""

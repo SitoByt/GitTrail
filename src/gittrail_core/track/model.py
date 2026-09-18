@@ -10,11 +10,6 @@ class ConnectionType(str, Enum):
     MERGE = "merge"
     REFACTOR = "refactor" 
 
-class Branch(BaseModel):
-    name: str
-    color: str = "#000000"
-    commits_by_hash: list[str] = Field(default_factory=list)
-
 class Connection(BaseModel):
     target_hash : str
     connection_type : ConnectionType
@@ -26,16 +21,16 @@ class CommitNode(BaseModel):
     timestamp : int
     message : str
     #Layout
-    branch: Optional[Branch] = None
+    branch: Optional[str] = None # Branch id
     parents : list[str] = Field(default_factory=list)
     connections: list[Connection] = Field(default_factory=list)
     #Style
     color: str = "#000000"
 
     def set_branch(self, branch: Branch):
-        self.branch = branch
-        if self.hash not in branch.commits_by_hash:
-            branch.commits_by_hash.append(self.hash)
+        self.branch = id(branch)
+        if self not in branch.commits:
+            branch.commits.append(self)
 
     def get_date(self) -> datetime:
         return datetime.fromtimestamp(self.timestamp)
@@ -47,30 +42,33 @@ class CommitNode(BaseModel):
         return len(self.parents) == 0
     
     # determines the connections for each node
-    def create_connections(self, hash_to_node: Dict[str, CommitNode]):
+    def create_connections(self, nodes_by_hash: Dict[str, CommitNode]):
         self.connections = []
-        branch = self.branch
-
         for idx, parent_hash in enumerate(self.parents):
-            parent_node = hash_to_node.get(parent_hash)
-            parent_branch = parent_node.branch if parent_node else None
+            parent_node = nodes_by_hash.get(parent_hash)
+            if not parent_node:
+                continue
             if idx > 0:
                 connection_type = ConnectionType.MERGE
-            elif parent_branch != branch:
+            elif parent_node.branch != self.branch:
                 connection_type = ConnectionType.BRANCH
             else:
                 connection_type = ConnectionType.COMMIT
-            self.connections.append(Connection(target_hash=parent_hash, conn_type=connection_type))
+            parent_node.connections.append(Connection(target_hash=self.hash, connection_type=connection_type))
+
+class Branch(BaseModel):
+    name: str
+    color: str = "#000000"
+    commits: list[str] = Field(default_factory=list)
+    ongoing: bool = False
+
+    def add_commit(self, commit: CommitNode):
+        self.commits.append(commit.hash)
 
 class Track(BaseModel):
     lanes: list[list[Branch]] = Field(default_factory=list)
-    nodes: list[CommitNode] = Field(default_factory=list)
-
-def find_node(nodes: list[CommitNode], commit_hash: str) -> Optional[CommitNode]:
-    for node in nodes:
-        if node.hash == commit_hash:
-            return node
-    return None
+    node_hashes: list[str] = Field(default_factory=list)
+    nodes_by_hash: Dict[str, CommitNode] = Field(default_factory=dict)
 
 
 

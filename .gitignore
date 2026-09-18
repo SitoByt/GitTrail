@@ -3,17 +3,11 @@
 # ==========================================
 
 output/*
-!output/.gitkeep
 
 configs/*
-!configs/.gitkeep
 !configs/presets/
-!configs/presets/**
 
 git_histories/*
-!git_histories/.gitkeep
-
-
 
 # ==========================================
 #                  Generic
@@ -33,6 +27,7 @@ __pycache__/
 dist/
 build/
 
+#OS
 .vscode/
 .idea/
 *.swp

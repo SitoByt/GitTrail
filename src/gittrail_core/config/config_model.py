@@ -87,7 +87,7 @@ class LayoutConfig(BaseModel):
     orientation: str = "horizontal"     # horizontal || vertical
     margins: MarginsConfig
     nodes: NodesLayoutConfig
-    connections: BranchLayoutConfig
+    connections: ConnectionConfig
 
 """
 Git Config 
@@ -108,3 +108,55 @@ class TrackConfig(BaseModel):
     style_config: StyleConfig
     layout_config: LayoutConfig
     track: Track
+
+
+"""
+Config Factory
+"""
+
+# --- default configs ---
+def get_default_style_config() -> StyleConfig:
+    return StyleConfig(
+        line_config=LineStyleConfig(
+            color_palatte=LineColorPalette(
+                name="default-line", 
+                type=LineColorType.BRANCH_INDEXED, 
+                colors=["#000000"]
+            )
+        ),
+        node_config=NodeStyleConfig(
+            color_palatte=NodeColorPalette(
+                name="default-node", 
+                type=NodeColorType.BRANCH_BASED, 
+                colors={
+                    "commit" : "#000000",
+                    "branch" : "#000000",
+                    "merge" : "#000000"
+                }
+            )
+        )
+    )
+
+def get_default_layout_config() -> LayoutConfig:
+    return LayoutConfig(
+        orientation="horizontal",
+        margins=MarginsConfig(
+            side_margin=30.0, 
+            lane_margin=50.0, 
+            commit_margin=20.0
+            ),
+        nodes=NodesLayoutConfig(
+            toggled=True, 
+            node_radius=10.0
+            ),
+        connections=ConnectionConfig(
+            lane_change=LaneChangeConfig(
+                type=LaneChangeType.LINEAR,
+                margin=10.0
+            ),
+            branch=BranchLayoutConfig(
+                stroke_width=5.0
+            )
+        )
+    )
+

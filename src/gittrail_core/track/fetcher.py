@@ -7,6 +7,8 @@ import tempfile
 import subprocess
 import json
 
+from gittrail_core.config.config_model import GitConfig
+
 """
 Fetches the Git History from a local Directory or from GitLab/GitHub
 """
@@ -27,7 +29,6 @@ def select_repo_directory() -> str | None:
             return folder_path
         else:
             print("Error: the selected Folder isn't a Git-Repository")
-            return None
     return None
 
 # local history
@@ -64,22 +65,48 @@ def get_local_git_history(path: str):
 
 # fetches (only the Git-History) via an Web-URL
 def fetch_remote_git_history(url: str):
-    with tempfile.TemporaryDirectory() as temp_dir:
-        clone_cmd = ["git", "clone", "--bare", "--filter=blob:none", url, temp_dir]
+    temp_dir = tempfile.mkdtemp()
+    clone_cmd = ["git", "clone", "--bare", "--filter=blob:none", url, temp_dir]
+    try:
+        subprocess.run(clone_cmd, capture_output=True, text=True, check=True)
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(f"Error while cloning repository: {e.stderr.strip()}")
+    return temp_dir
+
+# creates a git config for the git repository
+def create_git_info(path: str, url: str = "") -> GitConfig:
+    project_name = os.path.basename(os.path.abspath(path))
+
+    if not url:
         try:
-            subprocess.run(clone_cmd, capture_output=True, text=True, check=True)
-        except subprocess.CalledProcessError as e:
-            raise RuntimeError(f"Error while cloning repository: {e.stderr.strip()}")
-            # TODO: Errorhandling
-        return get_local_git_history(temp_dir)
+            result = subprocess.run(
+                ["git", "-C", path, "remote", "get-url", "origin"],
+                capture_output=True,
+                text=True,
+                check=True,
+                encoding="utf-8"
+            )
+            url = result.stdout.strip()
+        except subprocess.SubprocessError:
+            url = ""
 
+    description = ""
+    desc_path = os.path.join(path, ".git", "description")
+    if os.path.exists(desc_path):
+        try:
+            with open(desc_path, "r", encoding="utf-8") as f:
+                content = f.read().strip()
+                if content and not content.startswith("Unnamed repository"):
+                    description = content
+        except Exception:
+            pass
+            
+    if not description:
+        description = f"Git repository for {project_name}"
 
-if __name__ == "__main__":
-    path = select_repo_directory()
-    if path:
-        print(f"Selected Repository: {path}")
-        history = get_local_git_history(path)
-        print(json.dumps(history, indent=2, ensure_ascii=False))
-        print(f"\nResulting Json: {len(history)} Commits.")
-    else:
-        print("Failed reading the repository")
+    return GitConfig(
+        project_name=project_name,
+        project_url=url,
+        project_description=description
+    )
+

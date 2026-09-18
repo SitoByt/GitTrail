@@ -1,41 +1,42 @@
-import json
-from gittrail_core.fetcher import get_local_git_history, select_repo_directory
-from gittrail_core.track.layout import construct_track
-from gittrail_core.track.visualizer import display_via_cmdln
+import shutil
+
+from gittrail_core.pipeline import create_track, display_track_in_txt, init_local, init_remote
 
 
 def main():
-    repo_path = select_repo_directory()
-    if not repo_path:
-        print("didn't select a repository")
-        return
+    path = ""
+    is_remote = False
+    while not path:
+        print("What kind of repository do you want to analyze?\n\t[1] local\n\t[2] remote")
+        choice = input().strip()
+        if choice == "1":
+            path = init_local()
+        elif choice == "2":
+            print("Please paste the remote Git URL (e.g., https://github.com/...):")
+            url = input().strip()
+            path = init_remote(url)
+            is_remote = True
+        else:
+            print("ivalid input")
 
-    print(f"reading commits from: {repo_path}")
-    git_history = get_local_git_history(repo_path)
-    print(f"{len(git_history)} calculating layout...")
+    # TODO: as soon as we implement an update-function:
+    #print("What do you want to do?\n\t[1] new track\n\t[2] update track")
+    #
+    #
+    create_track(path)
+    # 
+    # 
+    # 
+    if is_remote:
+        shutil.rmtree(path, ignore_errors=True)
 
-    track = construct_track(git_history)
-    lanes = track.lanes
+    display_track_in_txt()
 
-    print(f"\nfinished layout:")
-    print(f" - lane count: {len(lanes)}")
-    for i, lane in enumerate(lanes):
-        node_count = sum(len(b.commits) for b in lane)
-        print(f"  * lane {i}: {len(lanes[i])} branches, {node_count} nodes")
 
-    if track.node_hashes:
-        first_hash = track.node_hashes[0]
-        first_node = track.nodes_by_hash[first_hash]
-        print(f"\nFirst Node: {first_hash[:7]} by {first_node.author}")
-        connections_summary = [
-            f"{c.connection_type.value} -> {c.target_hash[:7]}" 
-            for c in first_node.connections
-        ]
-        print(f"Connections: {connections_summary}")
-    else:
-        print("\nNo nodes found in track.")
 
-    display_via_cmdln(track)
+    
+
+    
 
 if __name__ == "__main__":
     main()

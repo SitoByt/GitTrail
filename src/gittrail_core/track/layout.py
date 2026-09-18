@@ -173,13 +173,6 @@ class Cluster:
         if self._cluster_lanes:
             return self._cluster_lanes
         
-        # defines whether we could theoretically place a branch on a lane
-        """
-        def is_lane_free(lane: List[Cluster], cluster: Cluster) -> bool:
-            if not lane: return True
-            return lane[-1].get_max() < cluster.get_min()
-        """
-        
         # responsible for inserting a cluster into the lanes (relative to the parent)
         def cascade_insert(idx: int, cluster: Cluster, push_dir: int):
             nonlocal parent_idx
@@ -236,10 +229,6 @@ class Cluster:
                 cascade_insert(target_idx, child, push_dir)
             
         self._cluster_lanes = lanes
-        for i, lane in enumerate(lanes):
-            intervals = [c.interval for c in lane]
-            interval_string = [ (str(interval.min) + "," + str(interval.max)) for interval in intervals]
-            print(f"  Lane {i}: {interval_string}")
         return lanes
 
     # calculates line-positioning
@@ -279,10 +268,6 @@ class Cluster:
                 physical_lanes.extend(sub_lanes)
                 
         self._physical_lanes = physical_lanes
-        for i, lane in enumerate(physical_lanes):
-            intervals = [c.interval for c in lane]
-            interval_string = [ (str(interval.min) + "," + str(interval.max)) for interval in intervals]
-            print(f"  Lane {i}: {interval_string}")
         return physical_lanes
 
     # getters

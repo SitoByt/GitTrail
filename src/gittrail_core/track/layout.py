@@ -174,9 +174,12 @@ class Cluster:
             return self._cluster_lanes
         
         # defines whether we could theoretically place a branch on a lane
+        """
         def is_lane_free(lane: List[Cluster], cluster: Cluster) -> bool:
             if not lane: return True
             return lane[-1].get_max() < cluster.get_min()
+        """
+        
         # responsible for inserting a cluster into the lanes (relative to the parent)
         def cascade_insert(idx: int, cluster: Cluster, push_dir: int):
             nonlocal parent_idx
@@ -202,54 +205,41 @@ class Cluster:
         # We chronologically iterate over each Cluster, and add it to our lanes 
         for child in self.child_clusters:
             candidates = []
-            # We test whether we can append it to any free lane
-            for idx, lane in enumerate(lanes):
-                if idx == parent_idx: continue
-                if is_lane_free(lane, child):
-                    crossings = 0
-                    check_range = range(idx + 1, parent_idx) if idx <= parent_idx else range(parent_idx + 1, idx)
-                    for i in check_range:
-                        if any(child.overlaps(c) for c in lanes[i]):
-                            crossings += 1
-                    dst = abs(idx - parent_idx)
-                    min_crossings = min(crossings, min_crossings)
-                    is_above = idx > parent_idx
-                    candidates.append((crossings, is_above, False, dst,  idx))
 
-            min_crossings = min([c[0] for c in candidates]) if candidates else 99999
-
-            # We search for insert-options:
-            for idx in range(len(lanes) + 1):
+            # Algorithm to determine priority of where to insert it
+            for idx in range(len(lanes) + 2):
+                if idx == parent_idx: 
+                    continue
+                    
                 crossings = 0
-                check_range = range(idx, parent_idx) if idx <= parent_idx else range(parent_idx + 1, idx)
+                if idx < parent_idx:
+                    check_range = range(idx + 1, parent_idx)
+                else:
+                    check_range = range(parent_idx + 1, idx)
+                    
                 for i in check_range:
-                    if any(child.overlaps(c) for c in lanes[i]):
+                    if i < len(lanes) and any(child.overlaps(c) for c in lanes[i]):
                         crossings += 1
 
-                if crossings <= min_crossings:
-                    dist = (parent_idx + 1 - idx) if idx <= parent_idx else (idx - parent_idx)
-                    min_crossings = crossings
-                    is_above = idx > parent_idx
-                    candidates.append((crossings, is_above, True, dist, idx))
+                dist = (parent_idx - idx) if idx <= parent_idx else (idx - 1 - parent_idx)
+                is_above = idx > parent_idx
+                candidates.append((crossings, is_above, dist, idx))
                     
             if candidates:
-                # Priority: 1. least crossings, 2. is_above, 3. no-insert, 4. distance.
-                candidates = [c for c in candidates if c[0] == min_crossings]
-                candidates.sort(key=lambda c: (c[2], not c[1], c[3]))
+                # Priority: 1. least crossings, 2. is_above, 3. distance.
+                candidates.sort(key=lambda c: (c[0], not c[1], c[2]))
 
                 result = candidates[0]
-                is_insert = result[2]
-                target_idx = result[4]
-                # Adding the cluster to the lanes
-                if is_insert:
-                    lanes.insert(target_idx, [child])
-                    if target_idx <= parent_idx:
-                        parent_idx += 1
-                else:
-                    push_dir = -1 if target_idx < parent_idx else 1
-                    cascade_insert(target_idx, child, push_dir)
+                target_idx = result[3]
+
+                push_dir = -1 if target_idx < parent_idx else 1
+                cascade_insert(target_idx, child, push_dir)
             
         self._cluster_lanes = lanes
+        for i, lane in enumerate(lanes):
+            intervals = [c.interval for c in lane]
+            interval_string = [ (str(interval.min) + "," + str(interval.max)) for interval in intervals]
+            print(f"  Lane {i}: {interval_string}")
         return lanes
 
     # calculates line-positioning
@@ -289,6 +279,10 @@ class Cluster:
                 physical_lanes.extend(sub_lanes)
                 
         self._physical_lanes = physical_lanes
+        for i, lane in enumerate(physical_lanes):
+            intervals = [c.interval for c in lane]
+            interval_string = [ (str(interval.min) + "," + str(interval.max)) for interval in intervals]
+            print(f"  Lane {i}: {interval_string}")
         return physical_lanes
 
     # getters

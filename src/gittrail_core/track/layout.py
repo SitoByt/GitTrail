@@ -13,42 +13,88 @@ def get_branches(commits: List[Dict]) -> List[Branch]:
     commits_by_hash = {c["hash"]: c for c in commits}
     assigned_hashes: Set[str] = set()
     branches: List[Branch] = []
-
-    for commit in commits:
-        c_hash = commit["hash"]
-        if c_hash in assigned_hashes:
-            continue
-
-        # assign all hashes of a branch to one branch and define a name for the branch
-        current_branch_hashes: List[str] = []
-        curr = c_hash
-        b_name : Optional[str] = None
-        while curr and curr not in assigned_hashes and curr in commits_by_hash:
-            assigned_hashes.add(curr)
-            current_branch_hashes.append(curr)
-
-            if not b_name:
-                refs = commits_by_hash[curr].get("refs", [])
-                if refs:
-                    for ref in refs:
-                        if not ref.startswith("tag:") and not ref.startswith("origin/HEAD"):
-                            b_name = ref.split("/", 1)[-1] if ref.startswith("origin/") else ref
-                            break
-                        if ref.startswith("origin/"):
-                            b_name = ref.split("/", 1)[-1]
-                            is_ongoing = True
-                            break
-                        elif not b_name:
-                            b_name = ref
+    
+    # 1. Finde alle legitimen Referenznamen
+    commit_refs = {}
+    for c in commits:
+        refs = [
+            r.split("/", 1)[-1] if r.startswith("origin/") else r 
+            for r in c.get("refs", [])
+            if not r.startswith("tag:") and not r.startswith("HEAD") and not r.startswith("origin/HEAD")
+        ]
+        if refs:
+            refs.sort() # Deterministischer Tie-Break
+            commit_refs[c["hash"]] = refs[0]
             
-            parents = commits_by_hash[curr]["parents"]
-            curr = parents[0] if parents else None
+    # 2. Identifiziere alle potenziellen Branch-Spitzen
+    is_parent0 = set()
+    for c in commits:
+        parents = c.get("parents", [])
+        if parents:
+            is_parent0.add(parents[0])
+            
+    active_tips = set(commit_refs.keys())
+    for c in commits:
+        if c["hash"] not in is_parent0:
+            active_tips.add(c["hash"])
+            
+    anon_counter = 0
+    
+    # 3. Longest-Trunk-First Algorithmus
+    while len(assigned_hashes) < len(commits):
+        available_tips = [t for t in active_tips if t not in assigned_hashes]
         
-        is_ongoing = bool(b_name)
-        branch_name = b_name if b_name else f"branch-{len(branches)}"
-        current_branch_hashes.reverse() # last to first => first to last
-        branches.append(Branch(name=branch_name, commits=current_branch_hashes, ongoing=is_ongoing))
+        # Fallback, falls es isolierte Commits gibt
+        if not available_tips:
+            for c in commits:
+                if c["hash"] not in assigned_hashes:
+                    available_tips.append(c["hash"])
+                    break
+        
+        # Messe für jede Spitze, wie tief sie in die Historie reicht
+        paths = []
+        for tip in available_tips:
+            curr = tip
+            path = []
+            while curr and curr not in assigned_hashes and curr in commits_by_hash:
+                path.append(curr)
+                parents = commits_by_hash[curr].get("parents", [])
+                curr = parents[0] if parents else None
+                
+            if path:
+                name = commit_refs.get(tip, "")
+                has_ref = 1 if name else 0
+                paths.append((path, tip, has_ref, name))
+                
+        if not paths:
+            break
+            
+        # DER ENTSCHEIDENDE FIX AUS DEM ERFOLGREICHEN TEST:
+        # Prio 1: 'has_ref' (x[2]). Benannte Branches (main, dev) stechen IMMER namenlose aus.
+        # Prio 2: Länge des Pfades (len(x[0])).
+        paths.sort(key=lambda x: (x[2], len(x[0]), x[3]), reverse=True)
+        
+        best_path, best_tip, has_ref, b_name = paths[0]
+        
+        # Commits für diesen Branch "beanspruchen"
+        for h in best_path:
+            assigned_hashes.add(h)
+            
+        if not b_name:
+            anon_counter += 1
+            b_name = f"branch-{anon_counter}"
+            
+        is_ongoing = bool(has_ref)
+        best_path.reverse() # Von Alt nach Neu sortieren
+        branches.append(Branch(name=b_name, commits=best_path, ongoing=is_ongoing))
+        
+    print("\n--- DEBUG: GET_BRANCHES OUTPUT ---")
+    for b in branches:
+        print(f"Branch '{b.name}' (Ongoing: {b.ongoing}): {len(b.commits)} commits")
+    print("----------------------------------\n")
+        
     return branches
+
 
 # Creates the track-object
 def construct_track(commits: List[Dict]) -> Track:
@@ -137,16 +183,14 @@ def calculate_branch_intervals(hash_to_node: Dict[str, CommitNode], branches: li
             ))
         
     if intervals:
+        intervals.sort(key=lambda x: x.min)
         main_id = intervals[0].branch_id
         for inv in intervals[1:]:
             if inv.parent_id is None:
                 inv.parent_id = main_id
-        intervals.sort(key=lambda x: x.min)
     return intervals
 
-"""
-The cluster class is used to calculate the layout of each lane inside of the branch efficiently.
-"""
+# The cluster class is used to calculate the layout of each lane inside of the branch efficiently.
 class Cluster:
     def __init__(self, interval:Interval, intervals: List[Interval]):
         self.interval = interval
@@ -229,6 +273,12 @@ class Cluster:
                 cascade_insert(target_idx, child, push_dir)
             
         self._cluster_lanes = lanes
+
+        print(f"\n--- DEBUG: CLUSTER LANES (Parent Branch: {self.interval.branch_id}) ---")
+        for i, lane in enumerate(lanes):
+            intervals = [f"({c.get_min()},{c.get_max()})" for c in lane]
+            print(f"  Lane {i}: {intervals}")
+        print("----------------------------------------------------------\n")
         return lanes
 
     # calculates line-positioning

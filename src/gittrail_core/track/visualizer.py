@@ -10,8 +10,6 @@ Renders the layout visually
 from gittrail_core.track.model import Track
 
 
-
-
 def display_via_txt(track: Track):
     if not track.lanes or not track.node_hashes:
         return
@@ -34,14 +32,6 @@ def display_via_txt(track: Track):
             if cols:
                 branch_bounds[b_id] = [min(cols), max(cols)]
 
-    for c, c_hash in enumerate(track.node_hashes):
-        node = track.nodes_by_hash[c_hash]
-        for p_hash in node.parents:
-            p_node = track.nodes_by_hash.get(p_hash)
-            if p_node and str(p_node.branch) in branch_bounds:
-                p_b_id = str(p_node.branch)
-                if c > branch_bounds[p_b_id][1]:
-                    branch_bounds[p_b_id][1] = c
 
     grid = [[' ' for _ in range(node_count)] for _ in range(lane_count)]
 
@@ -66,7 +56,7 @@ def display_via_txt(track: Track):
 
                 step = 1 if active_lane > p_lane else -1
                 char = '/' if step == 1 else '\\'
-
+            
                 if is_first_commit and i == 0:
                     for l in range(p_lane + step, active_lane + step, step):
                         slash_lanes[l] = char
